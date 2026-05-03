@@ -1,0 +1,10 @@
+{
+  "name": "{\"en\":\"Multi Text Style\",\"zh_CN\":\"批量文本样式\",\"zh_TW\":\"批次文字樣式\",\"ja\":\"テキスト一括スタイル\",\"th\":\"จัดสไตล์ข้อความหลายกล่อง\",\"nl\":\"Meervoudige tekststijl\",\"de\":\"Mehrfach-Textstil\"}",
+  "desc": "Restyle multiple text boxes at once. Lasso the text boxes, pick font / size / bold / italic / alignment, and apply to all in one shot.",
+  "iconPath": "assets/icon.png",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "pluginID": "snplgmtstylev1",
+  "pluginKey": "SnMultiTextStyle",
+  "jsMainPath": "index"
+}
