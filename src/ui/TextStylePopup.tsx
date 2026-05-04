@@ -41,7 +41,7 @@ export type TextStylePopupProps = {
 
 // Extract the display name from a font path: '/system/fonts/Dolce.ttf' → 'Dolce'
 const fontDisplayName = (path: string | null): string => {
-  if (path === null) return t('font.default');
+  if (path === null) { return t('font.default'); }
   const filename = path.split('/').pop() ?? path;
   return filename.replace(/\.[^.]+$/, '');
 };
@@ -50,7 +50,7 @@ const fontDisplayName = (path: string | null): string => {
 // Works for user fonts (e.g. Dolce.ttf → 'Dolce'); system fonts with
 // weight suffixes (Roboto-Regular.ttf) may not resolve — acceptable fallback.
 const fontFamilyFor = (path: string | null): string | undefined => {
-  if (path === null) return undefined;
+  if (path === null) { return undefined; }
   const filename = path.split('/').pop() ?? '';
   const name = filename.replace(/\.[^.]+$/, '');
   return name || undefined;
