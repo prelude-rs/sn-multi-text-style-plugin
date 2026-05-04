@@ -53,8 +53,8 @@ export const FONT_OPTIONS: ReadonlyArray<FontOption> = [
 ];
 
 export const SIZE_MIN = 8;
-export const SIZE_MAX = 200;
-export const SIZE_STEP = 2;
+export const SIZE_MAX = 400; // firmware built-in cap is 86; we allow beyond it
+export const SIZE_STEP = 4;
 
 export const clampSize = (size: number): number => {
   if (Number.isNaN(size)) {
@@ -71,22 +71,20 @@ export const DEFAULT_STYLE: TextStyle = {
   align: KEEP,
 };
 
-// Initial popup state derived from the lasso selection. If every box
-// agrees on a value, expose it as the default; otherwise leave KEEP so
-// the user has to opt-in to overwriting.
+// Initial popup state derived from the lasso selection. Seeds from the
+// first box so all controls have a concrete starting value the user can
+// adjust — or reset to KEEP per-field if they don't want to touch it.
 export const styleFromSelection = (boxes: ReadonlyArray<TextBox>): TextStyle => {
   if (boxes.length === 0) {
     return {...DEFAULT_STYLE};
   }
   const first = boxes[0]!;
-  const allAgree = <K extends keyof TextBox>(key: K): boolean => boxes.every(b => b[key] === first[key]);
-
   return {
-    fontPath: allAgree('fontPath') ? (first.fontPath ?? null) : KEEP,
-    fontSize: allAgree('fontSize') ? clampSize(first.fontSize) : KEEP,
-    bold: allAgree('textBold') ? (first.textBold === 1 ? 1 : 0) : KEEP,
-    italic: allAgree('textItalics') ? (first.textItalics === 1 ? 1 : 0) : KEEP,
-    align: allAgree('textAlign') ? clampAlign(first.textAlign) : KEEP,
+    fontPath: first.fontPath ?? null,
+    fontSize: clampSize(first.fontSize),
+    bold: first.textBold === 1 ? 1 : 0,
+    italic: first.textItalics === 1 ? 1 : 0,
+    align: clampAlign(first.textAlign),
   };
 };
 

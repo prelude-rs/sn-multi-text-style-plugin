@@ -69,10 +69,10 @@ describe('styleFromSelection', () => {
     });
   });
 
-  it('exposes a unified value when every box agrees', () => {
+  it('seeds from the first box regardless of agreement', () => {
     const boxes = [
       baseBox({fontSize: 18, textBold: 1, textAlign: 1}),
-      baseBox({fontSize: 18, textBold: 1, textAlign: 1, textContentFull: 'x'}),
+      baseBox({fontSize: 22, textBold: 0, textAlign: 0, textContentFull: 'x'}),
     ];
     const s = styleFromSelection(boxes);
     expect(s.fontSize).toBe(18);
@@ -80,11 +80,18 @@ describe('styleFromSelection', () => {
     expect(s.align).toBe(1);
   });
 
-  it('falls back to KEEP for fields where boxes disagree', () => {
-    const boxes = [baseBox({fontSize: 18, textBold: 0}), baseBox({fontSize: 22, textBold: 1, textContentFull: 'x'})];
-    const s = styleFromSelection(boxes);
-    expect(s.fontSize).toBe(KEEP);
-    expect(s.bold).toBe(KEEP);
+  it('seeds font path from first box (null becomes null, not KEEP)', () => {
+    const boxes = [
+      baseBox({fontPath: null}),
+      baseBox({fontPath: '/system/fonts/Roboto.ttf', textContentFull: 'x'}),
+    ];
+    expect(styleFromSelection(boxes).fontPath).toBe(null);
+  });
+
+  it('seeds concrete font path from first box', () => {
+    const path = '/system/fonts/NotoSerif-Regular.ttf';
+    const boxes = [baseBox({fontPath: path}), baseBox({fontPath: null, textContentFull: 'x'})];
+    expect(styleFromSelection(boxes).fontPath).toBe(path);
   });
 });
 

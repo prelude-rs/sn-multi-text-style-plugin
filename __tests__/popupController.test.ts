@@ -26,13 +26,14 @@ describe('popupController', () => {
       active: false,
       style: DEFAULT_STYLE,
       selectionCount: 0,
+      selectionFonts: [],
       callbacks: null,
     });
   });
 
   it('emits state on show with selection count + callbacks', () => {
     const cbs = stubCallbacks();
-    showPopup({style: {...DEFAULT_STYLE, bold: 1}, selectionCount: 3}, cbs);
+    showPopup({style: {...DEFAULT_STYLE, bold: 1}, selectionCount: 3, selectionFonts: []}, cbs);
     expect(getCurrentState()).toMatchObject({
       active: true,
       style: {bold: 1},
@@ -43,7 +44,7 @@ describe('popupController', () => {
 
   it('subscribe replays current state immediately (race-safe)', () => {
     const cbs = stubCallbacks();
-    showPopup({style: DEFAULT_STYLE, selectionCount: 2}, cbs);
+    showPopup({style: DEFAULT_STYLE, selectionCount: 2, selectionFonts: []}, cbs);
 
     let received: unknown = null;
     const unsub = subscribe(s => {
@@ -55,7 +56,7 @@ describe('popupController', () => {
 
   it('updatePopup patches without changing callbacks or active', () => {
     const cbs = stubCallbacks();
-    showPopup({style: DEFAULT_STYLE, selectionCount: 1}, cbs);
+    showPopup({style: DEFAULT_STYLE, selectionCount: 1, selectionFonts: []}, cbs);
     updatePopup({style: {...DEFAULT_STYLE, fontSize: 24}});
     expect(getCurrentState()).toMatchObject({
       active: true,
@@ -71,12 +72,13 @@ describe('popupController', () => {
   });
 
   it('hide clears callbacks and resets to default state', () => {
-    showPopup({style: DEFAULT_STYLE, selectionCount: 4}, stubCallbacks());
+    showPopup({style: DEFAULT_STYLE, selectionCount: 4, selectionFonts: []}, stubCallbacks());
     hidePopup();
     expect(getCurrentState()).toEqual({
       active: false,
       style: DEFAULT_STYLE,
       selectionCount: 0,
+      selectionFonts: [],
       callbacks: null,
     });
   });

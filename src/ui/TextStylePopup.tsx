@@ -1,5 +1,5 @@
 import React from 'react';
-import {Pressable, Text, View} from 'react-native';
+import {Pressable, ScrollView, Text, View} from 'react-native';
 import {
   FONT_OPTIONS,
   KEEP,
@@ -35,69 +35,88 @@ export type TextStylePopupCallbacks = {
 export type TextStylePopupProps = {
   style: TextStyle;
   selectionCount: number;
+  selectionFonts: ReadonlyArray<string | null>;
   callbacks: TextStylePopupCallbacks;
 };
 
-type ChipProps = {
-  label: string;
-  active: boolean;
-  keep?: boolean;
-  onPress: () => void;
+// Extract the display name from a font path: '/system/fonts/Dolce.ttf' → 'Dolce'
+const fontDisplayName = (path: string | null): string => {
+  if (path === null) return t('font.default');
+  const filename = path.split('/').pop() ?? path;
+  return filename.replace(/\.[^.]+$/, '');
 };
 
-const Chip: React.FC<ChipProps> = ({label, active, keep = false, onPress}) => (
-  <Pressable style={[styles.chip, keep && styles.chipKeep, active && styles.chipActive]} onPress={onPress}>
-    <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-  </Pressable>
-);
-
-const Field: React.FC<{labelId: StringId; children: React.ReactNode}> = ({labelId, children}) => (
-  <View style={styles.fieldRow}>
-    <View style={styles.fieldLabelCell}>
-      <Text style={styles.fieldLabel}>{t(labelId)}</Text>
-    </View>
-    <View style={styles.fieldControlCell}>{children}</View>
-  </View>
-);
-
-const fontLabelFor = (path: string | null): string => {
-  const opt = FONT_OPTIONS.find(o => o.path === path);
-  if (opt) {
-    return t(`font.${opt.id}` as StringId);
-  }
-  // Custom path coming from the existing text box that's not in our
-  // curated list — show its filename so the user knows which font is
-  // currently in effect without overwriting.
-  if (path) {
-    const slash = path.lastIndexOf('/');
-    return slash >= 0 ? path.slice(slash + 1) : path;
-  }
-  return t('font.default');
+// Best-effort fontFamily for RN: strip the path and extension.
+// Works for user fonts (e.g. Dolce.ttf → 'Dolce'); system fonts with
+// weight suffixes (Roboto-Regular.ttf) may not resolve — acceptable fallback.
+const fontFamilyFor = (path: string | null): string | undefined => {
+  if (path === null) return undefined;
+  const filename = path.split('/').pop() ?? '';
+  const name = filename.replace(/\.[^.]+$/, '');
+  return name || undefined;
 };
 
-const FontPicker: React.FC<{
+// Merge FONT_OPTIONS + any extra paths from the current selection.
+const buildFontRows = (selectionFonts: ReadonlyArray<string | null>): Array<string | null> => {
+  const seen = new Set<string | null>();
+  const list: Array<string | null> = [];
+  for (const opt of FONT_OPTIONS) {
+    seen.add(opt.path);
+    list.push(opt.path);
+  }
+  for (const path of selectionFonts) {
+    if (!seen.has(path)) {
+      seen.add(path);
+      list.push(path);
+    }
+  }
+  return list;
+};
+
+// ─── Font list ─────────────────────────────────────────────────────────────
+
+const FontList: React.FC<{
   value: StyleValue<string | null>;
+  selectionFonts: ReadonlyArray<string | null>;
   onPick: (path: string | null) => void;
   onKeep: () => void;
-}> = ({value, onPick, onKeep}) => (
-  <>
-    <Chip label={t('font.keep')} active={value === KEEP} keep onPress={onKeep} />
-    {FONT_OPTIONS.map(opt => (
-      <Chip
-        key={opt.id}
-        label={t(`font.${opt.id}` as StringId)}
-        active={value !== KEEP && value === opt.path}
-        onPress={() => onPick(opt.path)}
-      />
-    ))}
-    {/* Surface a custom font path (one not in FONT_OPTIONS) as an
-        active read-only chip so the user sees what's currently set
-        before deciding whether to overwrite. */}
-    {value !== KEEP && value !== null && !FONT_OPTIONS.some(o => o.path === value) ? (
-      <Chip label={fontLabelFor(value)} active onPress={() => onPick(value)} />
-    ) : null}
-  </>
-);
+}> = ({value, selectionFonts, onPick, onKeep}) => {
+  const rows = buildFontRows(selectionFonts);
+  return (
+    <View style={styles.fontListOuter}>
+      <ScrollView style={styles.fontListScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
+        {/* Keep-current row */}
+        <Pressable
+          style={[styles.fontRow, value === KEEP && styles.fontRowSelected]}
+          onPress={onKeep}>
+          <Text style={[styles.fontRowText, styles.fontRowKeepText]}>{t('font.keep')}</Text>
+        </Pressable>
+        {rows.map((path, i) => {
+          const label = fontDisplayName(path);
+          const ff = fontFamilyFor(path);
+          const isSelected = value !== KEEP && value === path;
+          return (
+            <Pressable
+              key={i}
+              style={[styles.fontRow, isSelected && styles.fontRowSelected]}
+              onPress={() => onPick(path)}>
+              <Text
+                style={[
+                  styles.fontRowText,
+                  ff ? {fontFamily: ff} : undefined,
+                  isSelected && styles.fontRowTextSelected,
+                ]}>
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─── Size stepper ──────────────────────────────────────────────────────────
 
 const SizeStepper: React.FC<{
   value: StyleValue<number>;
@@ -105,8 +124,7 @@ const SizeStepper: React.FC<{
   onKeep: () => void;
 }> = ({value, onChange, onKeep}) => {
   const isKeep = value === KEEP;
-  const display = isKeep ? t('value.keep') : String(value);
-  const current = isKeep ? 16 : value;
+  const current = isKeep ? 28 : (value as number);
   const decDisabled = !isKeep && current <= SIZE_MIN;
   const incDisabled = !isKeep && current >= SIZE_MAX;
   return (
@@ -117,11 +135,9 @@ const SizeStepper: React.FC<{
         onPress={decDisabled ? undefined : () => onChange(clampSize(current - SIZE_STEP))}>
         <Text style={styles.stepperButtonText}>−</Text>
       </Pressable>
-      {isKeep ? (
-        <Text style={styles.stepperKeepText}>{display}</Text>
-      ) : (
-        <Text style={styles.stepperValue}>{display}</Text>
-      )}
+      <Text style={isKeep ? styles.stepperKeepText : styles.stepperValue}>
+        {isKeep ? '—' : String(current)}
+      </Text>
       <Pressable
         style={[styles.stepperButton, incDisabled && styles.actionButtonDisabled]}
         onPress={incDisabled ? undefined : () => onChange(clampSize(current + SIZE_STEP))}>
@@ -130,6 +146,17 @@ const SizeStepper: React.FC<{
     </View>
   );
 };
+
+// ─── Shared chip ───────────────────────────────────────────────────────────
+
+type ChipProps = {label: string; active: boolean; keep?: boolean; onPress: () => void};
+const Chip: React.FC<ChipProps> = ({label, active, keep = false, onPress}) => (
+  <Pressable style={[styles.chip, keep && styles.chipKeep, active && styles.chipActive]} onPress={onPress}>
+    <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+  </Pressable>
+);
+
+// ─── Tristate (Keep / Off / On) ────────────────────────────────────────────
 
 const TristateToggle: React.FC<{
   value: StyleValue<0 | 1>;
@@ -142,6 +169,8 @@ const TristateToggle: React.FC<{
     <Chip label={t('value.on')} active={value === 1} onPress={() => onSet(1)} />
   </>
 );
+
+// ─── Align picker ──────────────────────────────────────────────────────────
 
 const AlignPicker: React.FC<{
   value: StyleValue<Align>;
@@ -156,6 +185,19 @@ const AlignPicker: React.FC<{
   </>
 );
 
+// ─── Field row wrapper ─────────────────────────────────────────────────────
+
+const Field: React.FC<{labelId: StringId; children: React.ReactNode}> = ({labelId, children}) => (
+  <View style={styles.fieldRow}>
+    <View style={styles.fieldLabelCell}>
+      <Text style={styles.fieldLabel}>{t(labelId)}</Text>
+    </View>
+    <View style={styles.fieldControlCell}>{children}</View>
+  </View>
+);
+
+// ─── Header ────────────────────────────────────────────────────────────────
+
 const Header: React.FC<{onClose: () => void}> = ({onClose}) => (
   <View style={styles.header}>
     <Text style={styles.headerTitle}>{t('dialog.title')}</Text>
@@ -165,11 +207,20 @@ const Header: React.FC<{onClose: () => void}> = ({onClose}) => (
   </View>
 );
 
-export const TextStylePopup: React.FC<TextStylePopupProps> = ({style, selectionCount, callbacks}) => {
+// ─── Root ──────────────────────────────────────────────────────────────────
+
+export const TextStylePopup: React.FC<TextStylePopupProps> = ({
+  style,
+  selectionCount,
+  selectionFonts,
+  callbacks,
+}) => {
   const noop = isStyleNoop(style);
   const noSelection = selectionCount === 0;
   const applyDisabled = noop || noSelection;
-  const statusLine = noSelection ? t('status.noTextBoxes') : tFmt('status.selectionCount', {n: selectionCount});
+  const statusLine = noSelection
+    ? t('status.noTextBoxes')
+    : tFmt('status.selectionCount', {n: selectionCount});
 
   return (
     <View style={styles.backdrop}>
@@ -177,9 +228,16 @@ export const TextStylePopup: React.FC<TextStylePopupProps> = ({style, selectionC
         <Header onClose={callbacks.onCancel} />
         <Text style={styles.status}>{statusLine}</Text>
 
-        <Field labelId="field.font">
-          <FontPicker value={style.fontPath} onPick={callbacks.onSetFont} onKeep={callbacks.onResetFont} />
-        </Field>
+        {/* Font — full-width list below the label */}
+        <View style={styles.fontSection}>
+          <Text style={styles.fieldLabel}>{t('field.font')}</Text>
+          <FontList
+            value={style.fontPath}
+            selectionFonts={selectionFonts}
+            onPick={callbacks.onSetFont}
+            onKeep={callbacks.onResetFont}
+          />
+        </View>
 
         <Field labelId="field.size">
           <SizeStepper value={style.fontSize} onChange={callbacks.onSetSize} onKeep={callbacks.onResetSize} />
@@ -197,8 +255,6 @@ export const TextStylePopup: React.FC<TextStylePopupProps> = ({style, selectionC
           <AlignPicker value={style.align} onSet={callbacks.onSetAlign} onKeep={callbacks.onResetAlign} />
         </Field>
 
-        {/* Always-rendered slot so toggling the warning doesn't shift
-            the dialog vertically. */}
         <View style={styles.warningSpacer}>
           {noop && !noSelection ? <Text style={styles.warning}>{t('warning.noChange')}</Text> : null}
         </View>

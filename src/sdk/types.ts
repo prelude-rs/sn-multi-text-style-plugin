@@ -21,10 +21,8 @@ export type Rect = {
   bottom: number;
 };
 
-// Subset of the firmware TextBox shape that the modifyLassoText API
-// validates as required + the four style fields we mutate. Other
-// fields (textDigestData, textFrameStyle, etc.) pass through unchanged
-// when we round-trip them from getLassoText().
+// Subset of the firmware TextBox shape. Fields pass through unchanged
+// when round-tripped from getLassoText() into modifyElements().
 export type TextBox = {
   fontSize: number;
   fontPath: string | null;
@@ -37,4 +35,18 @@ export type TextBox = {
   textFrameStyle: number;
   textEditable: number;
   textDigestData?: string | null;
+  textFrameWidth?: number;
+};
+
+// Element returned by PluginCommAPI.getLassoElements(). The SDK applies
+// transformElements() so each element already carries uuid + native
+// angles/contoursSrc accessors that the host validator requires when
+// round-tripping through modifyElements. We narrow only the fields we
+// read; the rest is opaque but MUST be preserved, hence the index
+// signature.
+export type LassoElement = {
+  uuid: string;
+  type: number;
+  textBox?: TextBox | null;
+  [key: string]: unknown;
 };

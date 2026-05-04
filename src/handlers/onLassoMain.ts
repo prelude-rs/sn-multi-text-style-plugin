@@ -1,21 +1,30 @@
 // Lasso entry point. Lifecycle:
 //   1. Acquire the reentrancy guard (re-presses while running are no-ops).
-//   2. Read the lasso text boxes via getLassoText().
+//   2. Read the lasso elements via getLassoElements().
 //   3. setLassoBoxState(1) to HIDE the lasso menu while our popup is up
-//      (keeps the selection alive — required by modifyLassoText).
+//      (keeps the selection alive).
 //   4. Show the popup; the user picks attributes to override.
-//   5. On Apply: iterate the captured boxes, send modifyLassoText for
-//      each with the merged style. Then setLassoBoxState(0) to RESHOW
-//      the lasso menu so the selection stays visible — the user can
-//      reopen the popup and apply another change without re-lassoing.
-//   6. On Cancel: same teardown minus the modifications.
+//   5. On Apply: for each text element, narrow the lasso to that single
+//      box via lassoElements(rect), then call modifyLassoText(newBox).
+//      Each iteration is one undo step on the firmware's stack.
+//   6. On any teardown (Apply / Cancel / no-text / error), set state=2
+//      (Released) — we explicitly want NO selection at the end of the
+//      operation. The user re-lassoes when they want another edit.
 //
-// Why state=0 (Show) on teardown rather than state=2 (Released):
-//   - The user explicitly wants the lasso selection to persist after
-//     applying a style — they often want to iterate.
-//   - We don't call resizeLassoRect, so we don't need state=2 to
-//     commit any pending visual transform.
-//   - state=0 leaves the selection visible + the lasso menu live.
+// Why the per-box loop instead of file-scoped modifyElements:
+//   - PluginFileAPI.modifyElements is a direct file write — it does NOT
+//     route through the firmware's edit pipeline, so it never reaches the
+//     undo stack. The firmware's hardware undo button can't roll it back.
+//   - PluginNoteAPI.modifyLassoText goes through the normal edit path
+//     and IS undoable, but it requires "exactly one lassoed text box".
+//   - PluginCommAPI.lassoElements(rect) lets us programmatically narrow
+//     the lasso to a single rect. Combining the two: re-lasso → modify,
+//     once per box. Each box becomes one undo step, which integrates
+//     with the system's undo button.
+//   - Side benefit: the firmware-native edit path handles the layout
+//     recomputation + repaint that file-scoped writes left stale.
+//   - Cost: N round-trips per Apply (vs 1 batched call). Acceptable for
+//     reasonable selection sizes — undo support is the higher-value win.
 //
 // Sync-first release: the firmware's state:stop transition can suspend
 // JS mid-await. release() runs synchronously before any await in the
@@ -31,25 +40,24 @@ import {
   type Italic,
   type TextStyle,
 } from '../core/textStyle';
-import type {APIResponse, Logger, Rect, TextBox} from '../sdk/types';
+import type {APIResponse, LassoElement, Logger, Rect, TextBox} from '../sdk/types';
 import {unwrap} from '../sdk/unwrap';
 import {safeClosePluginView} from '../sdk/closeView';
 import {hidePopup, showPopup, updatePopup} from '../ui/popupController';
 import type {TextStylePopupCallbacks} from '../ui/TextStylePopup';
 
-const LASSO_BOX_STATE_SHOW = 0;
 const LASSO_BOX_STATE_HIDDEN = 1;
 const LASSO_BOX_STATE_RELEASED = 2;
 
 export type LassoCommAPILike = {
-  getLassoRect: () => Promise<APIResponse<Rect>>;
   setLassoBoxState: (state: number) => Promise<APIResponse<boolean>>;
   closePluginView: () => Promise<boolean>;
+  getLassoElements: () => Promise<APIResponse<LassoElement[]>>;
+  lassoElements: (rect: Rect) => Promise<APIResponse<boolean>>;
 };
 
 export type NoteAPILike = {
-  getLassoText: () => Promise<APIResponse<TextBox[]>>;
-  modifyLassoText: (textBox: TextBox) => Promise<APIResponse<boolean>>;
+  modifyLassoText: (textBox: object) => Promise<APIResponse<boolean>>;
 };
 
 export type LassoDeps = {
@@ -73,35 +81,30 @@ const safeSetLassoBoxState = async (deps: LassoDeps, state: number): Promise<voi
   }
 };
 
-const tryGetLassoText = async (deps: LassoDeps): Promise<TextBox[] | null> => {
+const tryGetLassoElements = async (deps: LassoDeps): Promise<LassoElement[] | null> => {
   try {
-    const result = unwrap(await deps.noteApi.getLassoText(), 'getLassoText');
+    const result = unwrap(await deps.comm.getLassoElements(), 'getLassoElements');
     return Array.isArray(result) ? result : [];
   } catch (e) {
-    deps.logger.warn(`[${TAG}] getLassoText failed: ${(e as Error).message}`);
+    deps.logger.warn(`[${TAG}] getLassoElements failed: ${(e as Error).message}`);
     return null;
   }
 };
 
-// Teardown for Apply: keep the lasso visible (state=0) so the user
-// can iterate without re-lassoing. closePluginView removes our
-// overlay; the lasso menu re-renders on its own.
-const teardownKeepLasso = async (deps: LassoDeps): Promise<void> => {
-  release();
-  hidePopup();
-  await safeSetLassoBoxState(deps, LASSO_BOX_STATE_SHOW);
-  await safeClosePluginView(deps.comm, deps.logger);
-};
-
-// Teardown for the no-selection / fatal error path. Releases the
-// lasso completely so the gesture chain is clean.
-const teardownReleaseLasso = async (deps: LassoDeps): Promise<void> => {
+// Single teardown: release the lasso (state=2) — no selection should
+// persist past the operation. Used for every exit path.
+const teardown = async (deps: LassoDeps): Promise<void> => {
   release();
   hidePopup();
   await safeSetLassoBoxState(deps, LASSO_BOX_STATE_RELEASED);
   await safeClosePluginView(deps.comm, deps.logger);
 };
 
+// Apply a style to every box by looping per-box through the
+// firmware-native lasso edit path:
+//   1. lassoElements(box.textRect) — narrow to one box.
+//   2. modifyLassoText(applyStyleToBox(box, style)) — single-box edit
+//      that hits the undo stack.
 const applyToAll = async (
   deps: LassoDeps,
   boxes: ReadonlyArray<TextBox>,
@@ -111,18 +114,24 @@ const applyToAll = async (
   let failed = 0;
   for (let i = 0; i < boxes.length; i++) {
     const box = boxes[i]!;
-    const next = applyStyleToBox(box, style);
     try {
-      const res = await deps.noteApi.modifyLassoText(next);
-      if (res && res.success) {
-        ok += 1;
-      } else {
-        failed += 1;
-        deps.logger.warn(`[${TAG}] modifyLassoText[${i}] success=false: ${res?.error?.message ?? 'unknown'}`);
+      const lassoRes = await deps.comm.lassoElements(box.textRect);
+      if (!lassoRes || !lassoRes.success) {
+        deps.logger.warn(`[${TAG}] lassoElements(box ${i}) failed: ${lassoRes?.error?.message ?? 'unknown'}`);
+        failed++;
+        continue;
       }
+      const newBox = applyStyleToBox(box, style);
+      const modRes = await deps.noteApi.modifyLassoText(newBox);
+      if (!modRes || !modRes.success) {
+        deps.logger.warn(`[${TAG}] modifyLassoText(box ${i}) failed: ${modRes?.error?.message ?? 'unknown'}`);
+        failed++;
+        continue;
+      }
+      ok++;
     } catch (e) {
-      failed += 1;
-      deps.logger.warn(`[${TAG}] modifyLassoText[${i}] threw: ${(e as Error).message}`);
+      deps.logger.warn(`[${TAG}] apply box ${i} threw: ${(e as Error).message}`);
+      failed++;
     }
   }
   return {ok, failed};
@@ -135,32 +144,41 @@ export const onLassoMain = async (deps: LassoDeps): Promise<LassoOutcome> => {
     return 'busy';
   }
 
-  const boxes = await tryGetLassoText(deps);
-  if (boxes === null) {
-    deps.logger.error(`[${TAG}] could not read lasso text boxes — aborting`);
-    await teardownReleaseLasso(deps);
+  const lassoElements = await tryGetLassoElements(deps);
+  if (lassoElements === null) {
+    deps.logger.error(`[${TAG}] could not read lasso elements — aborting`);
+    await teardown(deps);
     return 'failed';
   }
 
-  if (boxes.length === 0) {
-    // The button is registered with editDataTypes=[3] (text-box only),
-    // so reaching this branch means the firmware accepted the press
-    // but the selection turned up empty — most likely the user
-    // cleared the selection between press and our read.
+  // Filter to text-box elements only. The button is registered with
+  // editDataTypes=[3] (text-box only), so non-text elements shouldn't
+  // appear here, but defensive in case the firmware widens the lasso.
+  const textElements = lassoElements.filter(e => e.textBox != null);
+
+  if (textElements.length === 0) {
     deps.logger.warn(`[${TAG}] no text boxes in lasso — closing`);
-    await teardownReleaseLasso(deps);
+    await teardown(deps);
     return 'no-text-boxes';
   }
 
+  const boxes: TextBox[] = textElements.map(e => e.textBox as TextBox);
+
   // Hide the lasso menu while the popup is up. State=1 keeps the
-  // selection alive (so modifyLassoText still has something to act
-  // on) while removing the visual pollution of the menu under our
-  // overlay.
+  // selection alive while removing the visual pollution of the menu
+  // under our overlay.
   await safeSetLassoBoxState(deps, LASSO_BOX_STATE_HIDDEN);
 
   // Closure-local mutable draft. The popup mutates it via callbacks;
   // Apply reads it once.
   let draft: TextStyle = styleFromSelection(boxes);
+
+  // Unique font paths present in the selection — surfaced in the font
+  // picker so the user can see (and re-apply) fonts already in use.
+  const selectionFonts: ReadonlyArray<string | null> = [
+    ...new Set(boxes.map(b => b.fontPath ?? null)),
+  ];
+  deps.logger.log(`[${TAG}] selection fonts (${selectionFonts.length}): ${JSON.stringify(selectionFonts)}`);
 
   const refresh = (): void => {
     updatePopup({style: draft});
@@ -190,14 +208,14 @@ export const onLassoMain = async (deps: LassoDeps): Promise<LassoOutcome> => {
         } catch (e) {
           deps.logger.error(`[${TAG}] apply crashed: ${(e as Error).message}`);
         } finally {
-          await teardownKeepLasso(deps);
+          await teardown(deps);
         }
       })().catch(() => {
         /* logged inside */
       });
     },
     onCancel: () => {
-      teardownKeepLasso(deps).catch(() => {
+      teardown(deps).catch(() => {
         /* logged inside */
       });
     },
@@ -207,6 +225,7 @@ export const onLassoMain = async (deps: LassoDeps): Promise<LassoOutcome> => {
     {
       style: draft,
       selectionCount: boxes.length,
+      selectionFonts,
     },
     callbacks,
   );
