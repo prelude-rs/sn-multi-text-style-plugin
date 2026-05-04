@@ -12,6 +12,7 @@ export type PopupState = {
   active: boolean;
   style: TextStyle;
   selectionCount: number;
+  selectionFonts: ReadonlyArray<string | null>;
   callbacks: TextStylePopupCallbacks | null;
 };
 
@@ -21,6 +22,7 @@ const initialState: PopupState = {
   active: false,
   style: DEFAULT_STYLE,
   selectionCount: 0,
+  selectionFonts: [],
   callbacks: null,
 };
 

@@ -36,7 +36,14 @@ export const PopupRoot: React.FC = () => {
     );
   }
 
-  return <TextStylePopup style={state.style} selectionCount={state.selectionCount} callbacks={state.callbacks} />;
+  return (
+    <TextStylePopup
+      style={state.style}
+      selectionCount={state.selectionCount}
+      selectionFonts={state.selectionFonts}
+      callbacks={state.callbacks}
+    />
+  );
 };
 
 export default PopupRoot;

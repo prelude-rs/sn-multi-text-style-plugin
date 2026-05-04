@@ -1,8 +1,7 @@
 import {onLassoMain, type LassoDeps} from '../src/handlers/onLassoMain';
-import {KEEP} from '../src/core/textStyle';
 import {release} from '../src/core/reentrancyGuard';
 import {__testing__ as popupTesting, getCurrentState} from '../src/ui/popupController';
-import type {TextBox} from '../src/sdk/types';
+import type {LassoElement, Rect, TextBox} from '../src/sdk/types';
 
 afterEach(() => {
   release();
@@ -37,21 +36,35 @@ const baseBox = (overrides: Partial<TextBox> = {}): TextBox => ({
   ...overrides,
 });
 
+const wrapElement = (box: TextBox, i: number): LassoElement => ({
+  uuid: `uuid-${i}`,
+  type: 500,
+  textBox: {...box},
+});
+
 const buildDeps = (boxes: TextBox[] | null) => {
-  const getLassoRect = jest.fn(async () => ok({left: 0, top: 0, right: 100, bottom: 30}));
   const setLassoBoxState = jest.fn(async () => ok(true));
   const closePluginView = jest.fn(async () => true);
-  const getLassoText = jest.fn(async () =>
-    boxes === null ? {success: false, error: {code: 1, message: 'no'}} : ok(boxes),
+  const getLassoElements = jest.fn(async () =>
+    boxes === null ? {success: false, error: {code: 1, message: 'no'}} : ok(boxes.map((b, i) => wrapElement(b, i))),
   );
-  const modifyLassoText = jest.fn(async () => ok(true));
+  const lassoElements = jest.fn(async (_rect: Rect) => ok(true));
+  const modifyLassoText = jest.fn(async (_textBox: object) => ok(true));
   const {logger, logs} = stubLogger();
   const deps: LassoDeps = {
-    comm: {getLassoRect, setLassoBoxState, closePluginView},
-    noteApi: {getLassoText, modifyLassoText},
+    comm: {setLassoBoxState, closePluginView, getLassoElements, lassoElements},
+    noteApi: {modifyLassoText},
     logger,
   };
-  return {deps, getLassoText, modifyLassoText, setLassoBoxState, closePluginView, logs};
+  return {
+    deps,
+    getLassoElements,
+    setLassoBoxState,
+    closePluginView,
+    lassoElements,
+    modifyLassoText,
+    logs,
+  };
 };
 
 describe('onLassoMain — entry', () => {
@@ -78,10 +91,10 @@ describe('onLassoMain — entry', () => {
     expect(getCurrentState().style).toMatchObject({fontSize: 24, bold: 1});
   });
 
-  it('uses KEEP when boxes disagree (mixed selection)', async () => {
+  it('seeds from first box when selection is mixed (not KEEP)', async () => {
     const {deps} = buildDeps([baseBox({fontSize: 24}), baseBox({fontSize: 18, textContentFull: 'b'})]);
     await onLassoMain(deps);
-    expect(getCurrentState().style.fontSize).toBe(KEEP);
+    expect(getCurrentState().style.fontSize).toBe(24);
   });
 
   it('returns "no-text-boxes" + closes when the selection is empty', async () => {
@@ -93,7 +106,7 @@ describe('onLassoMain — entry', () => {
     expect(modifyLassoText).not.toHaveBeenCalled();
   });
 
-  it('returns "failed" when getLassoText throws', async () => {
+  it('returns "failed" when getLassoElements throws', async () => {
     const {deps} = buildDeps(null);
     expect(await onLassoMain(deps)).toBe('failed');
   });
@@ -104,15 +117,24 @@ describe('onLassoMain — entry', () => {
     expect(await onLassoMain(deps)).toBe('busy');
     expect(closePluginView).toHaveBeenCalled();
   });
+
+  it('skips non-text elements when filtering the selection', async () => {
+    const {deps, getLassoElements} = buildDeps([baseBox()]);
+    (getLassoElements as jest.Mock).mockResolvedValueOnce(
+      ok([{uuid: 'stroke-1', type: 0, textBox: null}, wrapElement(baseBox(), 0), {uuid: 'geo-1', type: 700}]),
+    );
+    expect(await onLassoMain(deps)).toBe('opened');
+    expect(getCurrentState().selectionCount).toBe(1);
+  });
 });
 
 describe('onLassoMain — apply', () => {
-  it('applies the merged style to every text box, preserving rect + content', async () => {
+  it('loops per box: lassoElements(textRect) → modifyLassoText(newBox), each undoable', async () => {
     const boxes = [
       baseBox({fontSize: 12, textRect: {left: 0, top: 0, right: 100, bottom: 30}, textContentFull: 'a'}),
       baseBox({fontSize: 12, textRect: {left: 0, top: 50, right: 100, bottom: 80}, textContentFull: 'b'}),
     ];
-    const {deps, modifyLassoText} = buildDeps(boxes);
+    const {deps, lassoElements, modifyLassoText} = buildDeps(boxes);
     await onLassoMain(deps);
     const cbs = getCurrentState().callbacks!;
     cbs.onSetSize(28);
@@ -120,22 +142,26 @@ describe('onLassoMain — apply', () => {
     cbs.onApply();
     await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
 
-    expect(modifyLassoText).toHaveBeenCalledTimes(2);
+    // Once per box (no restore at the end — selection is released).
+    expect(lassoElements).toHaveBeenCalledTimes(boxes.length);
+    expect(lassoElements).toHaveBeenNthCalledWith(1, boxes[0]!.textRect);
+    expect(lassoElements).toHaveBeenNthCalledWith(2, boxes[1]!.textRect);
+
+    // One modifyLassoText per box, with the merged style applied.
+    expect(modifyLassoText).toHaveBeenCalledTimes(boxes.length);
     const calls = modifyLassoText.mock.calls as unknown as Array<[TextBox]>;
-    const firstArg = calls[0]![0];
-    expect(firstArg.fontSize).toBe(28);
-    expect(firstArg.textBold).toBe(1);
-    expect(firstArg.textRect).toEqual({left: 0, top: 0, right: 100, bottom: 30});
-    expect(firstArg.textContentFull).toBe('a');
-
-    const secondArg = calls[1]![0];
-    expect(secondArg.fontSize).toBe(28);
-    expect(secondArg.textRect).toEqual({left: 0, top: 50, right: 100, bottom: 80});
-    expect(secondArg.textContentFull).toBe('b');
+    expect(calls[0]![0].fontSize).toBe(28);
+    expect(calls[0]![0].textBold).toBe(1);
+    expect(calls[0]![0].textRect).toEqual(boxes[0]!.textRect);
+    expect(calls[0]![0].textContentFull).toBe('a');
+    expect(calls[1]![0].fontSize).toBe(28);
+    expect(calls[1]![0].textRect).toEqual(boxes[1]!.textRect);
+    expect(calls[1]![0].textContentFull).toBe('b');
   });
 
-  it('keeps the lasso visible after apply (state 0, not state 2)', async () => {
+  it('releases the lasso (state 2) after apply — no selection persists', async () => {
     const {deps, setLassoBoxState, closePluginView} = buildDeps([baseBox()]);
     await onLassoMain(deps);
     const cbs = getCurrentState().callbacks!;
@@ -143,40 +169,31 @@ describe('onLassoMain — apply', () => {
     cbs.onApply();
     await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
-    expect(setLassoBoxState).toHaveBeenCalledWith(0);
-    expect(setLassoBoxState).not.toHaveBeenCalledWith(2);
+    expect(setLassoBoxState).toHaveBeenCalledWith(2);
     expect(closePluginView).toHaveBeenCalled();
   });
 
-  it('cancel never calls modifyLassoText and reshows the lasso (state 0)', async () => {
-    const {deps, setLassoBoxState, modifyLassoText} = buildDeps([baseBox()]);
+  it('cancel never edits and releases the lasso (state 2)', async () => {
+    const {deps, setLassoBoxState, modifyLassoText, lassoElements} = buildDeps([baseBox()]);
     await onLassoMain(deps);
     const cbs = getCurrentState().callbacks!;
     cbs.onCancel();
     await new Promise(r => setTimeout(r, 0));
     expect(modifyLassoText).not.toHaveBeenCalled();
-    expect(setLassoBoxState).toHaveBeenCalledWith(0);
-    expect(setLassoBoxState).not.toHaveBeenCalledWith(2);
+    expect(lassoElements).not.toHaveBeenCalled();
+    expect(setLassoBoxState).toHaveBeenCalledWith(2);
   });
 
   it('apply releases the reentrancy guard SYNCHRONOUSLY (sync-first)', async () => {
-    // Simulate a slow modifyLassoText: if release() ran AFTER the
-    // teardown awaits, a second press during apply would be rejected
-    // even though apply hasn't returned yet. This test asserts that a
-    // re-press right after onApply() is honoured by checking that the
-    // guard is free as soon as the synchronous portion of teardown
-    // runs.
+    // Simulate slow lasso ops: if release() ran AFTER the teardown awaits,
+    // a second press during apply would be rejected even though apply
+    // hasn't returned yet. release() must run in teardown's sync prologue.
     const {deps} = buildDeps([baseBox()]);
     await onLassoMain(deps);
     const cbs = getCurrentState().callbacks!;
     cbs.onSetSize(20);
     cbs.onApply();
-    // Yield once to let the apply's sync prologue run (dispatch +
-    // first await boundary). release() runs in teardown's sync
-    // prologue. We then expect a fresh onLassoMain call to proceed
-    // (no 'busy') as soon as the prior one's sync teardown has run.
-    // We can't directly observe release() from outside, so we let the
-    // microtasks queue drain and try again.
+    await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
     const second = await onLassoMain(deps);
@@ -185,20 +202,39 @@ describe('onLassoMain — apply', () => {
 });
 
 describe('onLassoMain — partial failures', () => {
-  it('continues applying even if one modifyLassoText fails', async () => {
+  it('continues applying when one modifyLassoText fails', async () => {
     const boxes = [baseBox(), baseBox({textContentFull: 'b'})];
     const {deps, modifyLassoText, logs} = buildDeps(boxes);
-    const fn = modifyLassoText as jest.Mock;
-    fn.mockReset();
-    fn.mockResolvedValueOnce({success: false, error: {code: 9, message: 'nope'}});
-    fn.mockResolvedValueOnce(ok(true));
+    (modifyLassoText as jest.Mock).mockReset();
+    (modifyLassoText as jest.Mock)
+      .mockResolvedValueOnce({success: false, error: {code: 9, message: 'nope'}})
+      .mockResolvedValueOnce(ok(true));
     await onLassoMain(deps);
     const cbs = getCurrentState().callbacks!;
     cbs.onSetSize(24);
     cbs.onApply();
     await new Promise(r => setTimeout(r, 0));
     await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
     expect(modifyLassoText).toHaveBeenCalledTimes(2);
+    expect(logs.some(l => l.includes('ok=1 failed=1'))).toBe(true);
+  });
+
+  it('skips modifyLassoText when lassoElements fails for that box', async () => {
+    const boxes = [baseBox(), baseBox({textContentFull: 'b'})];
+    const {deps, lassoElements, modifyLassoText, logs} = buildDeps(boxes);
+    (lassoElements as jest.Mock).mockReset();
+    (lassoElements as jest.Mock)
+      .mockResolvedValueOnce({success: false, error: {code: 9, message: 'narrow failed'}})
+      .mockResolvedValueOnce(ok(true));
+    await onLassoMain(deps);
+    const cbs = getCurrentState().callbacks!;
+    cbs.onSetSize(24);
+    cbs.onApply();
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    await new Promise(r => setTimeout(r, 0));
+    expect(modifyLassoText).toHaveBeenCalledTimes(1);
     expect(logs.some(l => l.includes('ok=1 failed=1'))).toBe(true);
   });
 });
