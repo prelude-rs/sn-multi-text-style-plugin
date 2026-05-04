@@ -41,7 +41,9 @@ export type TextStylePopupProps = {
 
 // Extract the display name from a font path: '/system/fonts/Dolce.ttf' → 'Dolce'
 const fontDisplayName = (path: string | null): string => {
-  if (path === null) { return t('font.default'); }
+  if (path === null) {
+    return t('font.default');
+  }
   const filename = path.split('/').pop() ?? path;
   return filename.replace(/\.[^.]+$/, '');
 };
@@ -50,7 +52,9 @@ const fontDisplayName = (path: string | null): string => {
 // Works for user fonts (e.g. Dolce.ttf → 'Dolce'); system fonts with
 // weight suffixes (Roboto-Regular.ttf) may not resolve — acceptable fallback.
 const fontFamilyFor = (path: string | null): string | undefined => {
-  if (path === null) { return undefined; }
+  if (path === null) {
+    return undefined;
+  }
   const filename = path.split('/').pop() ?? '';
   const name = filename.replace(/\.[^.]+$/, '');
   return name || undefined;
@@ -86,9 +90,7 @@ const FontList: React.FC<{
     <View style={styles.fontListOuter}>
       <ScrollView style={styles.fontListScroll} showsVerticalScrollIndicator={false} nestedScrollEnabled>
         {/* Keep-current row */}
-        <Pressable
-          style={[styles.fontRow, value === KEEP && styles.fontRowSelected]}
-          onPress={onKeep}>
+        <Pressable style={[styles.fontRow, value === KEEP && styles.fontRowSelected]} onPress={onKeep}>
           <Text style={[styles.fontRowText, styles.fontRowKeepText]}>{t('font.keep')}</Text>
         </Pressable>
         {rows.map((path, i) => {
@@ -135,9 +137,7 @@ const SizeStepper: React.FC<{
         onPress={decDisabled ? undefined : () => onChange(clampSize(current - SIZE_STEP))}>
         <Text style={styles.stepperButtonText}>−</Text>
       </Pressable>
-      <Text style={isKeep ? styles.stepperKeepText : styles.stepperValue}>
-        {isKeep ? '—' : String(current)}
-      </Text>
+      <Text style={isKeep ? styles.stepperKeepText : styles.stepperValue}>{isKeep ? '—' : String(current)}</Text>
       <Pressable
         style={[styles.stepperButton, incDisabled && styles.actionButtonDisabled]}
         onPress={incDisabled ? undefined : () => onChange(clampSize(current + SIZE_STEP))}>
@@ -209,18 +209,11 @@ const Header: React.FC<{onClose: () => void}> = ({onClose}) => (
 
 // ─── Root ──────────────────────────────────────────────────────────────────
 
-export const TextStylePopup: React.FC<TextStylePopupProps> = ({
-  style,
-  selectionCount,
-  selectionFonts,
-  callbacks,
-}) => {
+export const TextStylePopup: React.FC<TextStylePopupProps> = ({style, selectionCount, selectionFonts, callbacks}) => {
   const noop = isStyleNoop(style);
   const noSelection = selectionCount === 0;
   const applyDisabled = noop || noSelection;
-  const statusLine = noSelection
-    ? t('status.noTextBoxes')
-    : tFmt('status.selectionCount', {n: selectionCount});
+  const statusLine = noSelection ? t('status.noTextBoxes') : tFmt('status.selectionCount', {n: selectionCount});
 
   return (
     <View style={styles.backdrop}>

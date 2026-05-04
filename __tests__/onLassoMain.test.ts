@@ -46,9 +46,7 @@ const buildDeps = (boxes: TextBox[] | null) => {
   const setLassoBoxState = jest.fn(async () => ok(true));
   const closePluginView = jest.fn(async () => true);
   const getLassoElements = jest.fn(async () =>
-    boxes === null
-      ? {success: false, error: {code: 1, message: 'no'}}
-      : ok(boxes.map((b, i) => wrapElement(b, i))),
+    boxes === null ? {success: false, error: {code: 1, message: 'no'}} : ok(boxes.map((b, i) => wrapElement(b, i))),
   );
   const lassoElements = jest.fn(async (_rect: Rect) => ok(true));
   const modifyLassoText = jest.fn(async (_textBox: object) => ok(true));
@@ -123,11 +121,7 @@ describe('onLassoMain — entry', () => {
   it('skips non-text elements when filtering the selection', async () => {
     const {deps, getLassoElements} = buildDeps([baseBox()]);
     (getLassoElements as jest.Mock).mockResolvedValueOnce(
-      ok([
-        {uuid: 'stroke-1', type: 0, textBox: null},
-        wrapElement(baseBox(), 0),
-        {uuid: 'geo-1', type: 700},
-      ]),
+      ok([{uuid: 'stroke-1', type: 0, textBox: null}, wrapElement(baseBox(), 0), {uuid: 'geo-1', type: 700}]),
     );
     expect(await onLassoMain(deps)).toBe('opened');
     expect(getCurrentState().selectionCount).toBe(1);

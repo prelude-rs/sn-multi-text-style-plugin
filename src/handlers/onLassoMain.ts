@@ -175,9 +175,7 @@ export const onLassoMain = async (deps: LassoDeps): Promise<LassoOutcome> => {
 
   // Unique font paths present in the selection — surfaced in the font
   // picker so the user can see (and re-apply) fonts already in use.
-  const selectionFonts: ReadonlyArray<string | null> = [
-    ...new Set(boxes.map(b => b.fontPath ?? null)),
-  ];
+  const selectionFonts: ReadonlyArray<string | null> = [...new Set(boxes.map(b => b.fontPath ?? null))];
   deps.logger.log(`[${TAG}] selection fonts (${selectionFonts.length}): ${JSON.stringify(selectionFonts)}`);
 
   const refresh = (): void => {

@@ -81,10 +81,7 @@ describe('styleFromSelection', () => {
   });
 
   it('seeds font path from first box (null becomes null, not KEEP)', () => {
-    const boxes = [
-      baseBox({fontPath: null}),
-      baseBox({fontPath: '/system/fonts/Roboto.ttf', textContentFull: 'x'}),
-    ];
+    const boxes = [baseBox({fontPath: null}), baseBox({fontPath: '/system/fonts/Roboto.ttf', textContentFull: 'x'})];
     expect(styleFromSelection(boxes).fontPath).toBe(null);
   });
 
