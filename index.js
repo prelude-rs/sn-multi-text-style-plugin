@@ -23,13 +23,13 @@ const logger = {
 };
 
 const lassoComm = {
-  getLassoRect: () => PluginCommAPI.getLassoRect(),
   setLassoBoxState: state => PluginCommAPI.setLassoBoxState(state),
   closePluginView: () => PluginManager.closePluginView(),
+  getLassoElements: () => PluginCommAPI.getLassoElements(),
+  lassoElements: rect => PluginCommAPI.lassoElements(rect),
 };
 
 const noteApi = {
-  getLassoText: () => PluginNoteAPI.getLassoText(),
   modifyLassoText: textBox => PluginNoteAPI.modifyLassoText(textBox),
 };
 

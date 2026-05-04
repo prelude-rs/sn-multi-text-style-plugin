@@ -11,8 +11,8 @@ export const styles = StyleSheet.create({
     padding: 24,
   },
   card: {
-    minWidth: 540,
-    maxWidth: 620,
+    minWidth: 560,
+    maxWidth: 660,
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 2,
@@ -54,6 +54,47 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#000000',
     textAlign: 'center',
+  },
+
+  // Font section: label above the scrollable list.
+  fontSection: {
+    marginBottom: 12,
+  },
+  fontListOuter: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#000000',
+    borderRadius: 6,
+    height: 220,
+  },
+  fontListScroll: {
+    height: 220,
+  },
+  fontRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: '#cccccc',
+  },
+  fontRowSelected: {
+    borderWidth: 2,
+    borderColor: '#000000',
+    borderRadius: 4,
+    margin: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  fontRowText: {
+    fontSize: 22,
+    color: '#000000',
+  },
+  fontRowTextSelected: {
+    color: '#000000',
+  },
+  fontRowKeepText: {
+    fontSize: 17,
+    fontStyle: 'italic',
+    color: '#666666',
   },
 
   // Field row: label on the left, control(s) on the right.
