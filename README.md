@@ -1,5 +1,8 @@
 # SnMultiTextStyle
 
+> **Work in progress — not ready for use.**
+> This plugin is currently blocked by missing functionality in the Supernote SDK: there is no way to increase a text box's font size without leaving the text clipped to its original bounding box. Development is on hold until the SDK exposes a way to trigger the firmware's box-to-text fit relayout from a plugin.
+
 Restyle multiple Supernote text boxes at once. Lasso a group of text boxes, pick a font / size / bold / italic / alignment, and apply to all of them in one shot.
 
 ## How it works
